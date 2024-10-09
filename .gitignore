@@ -2,3 +2,5 @@
 secret.json
 
 token_photos.pickle
+
+upload.errors.log

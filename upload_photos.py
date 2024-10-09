@@ -20,7 +20,10 @@ from io import BytesIO
 from mutagen.mp4 import MP4
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+script_dir = os.path.dirname(os.path.abspath(__file__))
+error_log_path = os.path.join(script_dir, 'upload.errors.log')
 error_log_path = 'upload.errors.log'
+
 # Create a logger for errors
 error_logger = logging.getLogger('error_logger')
 error_handler = logging.FileHandler(error_log_path)
@@ -160,7 +163,7 @@ def upload_file(service, file_path):
 
         # Check if the file is an image and modify EXIF metadata if needed
         if file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-            modified_image_data = modifiy_image_creation_date(file_data, file_path, creation_date)
+            modified_image_data = modifiy_image_creation_date(file_data, creation_date)
             modified_file_data = modified_image_data
         elif file_name.lower().endswith('.mp4'):
             modified_video_data = modify_mp4_creation_date(file_data, creation_date)  # Modify MP4 in memory
