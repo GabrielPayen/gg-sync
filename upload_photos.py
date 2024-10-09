@@ -85,20 +85,34 @@ def get_existing_photos(service):
         
     logging.info(f"Fetched {len(filename_hash_map)} existing media items.")
     return filename_hash_map
-
-def modify_mp4_creation_date(file_path, creation_date):
+## Add date in metadata for Google Photos sorting. Source of truth is modified date, as creation date can be wrong if data is copied or imported from other sources
+def modify_mp4_creation_date(file_data, creation_date):
     try:
-        video = MP4(file_path)
-        video["©day"] = creation_date  # Set the creation date
-        video.save()  # Save changes
-        logging.info(f"EXIF metadata updated with creation date: {creation_date} for {os.path.basename(file_path)}")
+        # Create an in-memory file-like object from the file data
+        in_memory_file = BytesIO(file_data)
+        
+        # Load the MP4 file using Mutagen
+        video = MP4(in_memory_file)
+        
+        # Modify the creation date in the metadata
+        video["©day"] = creation_date
+        
+        # Save the modified MP4 file to a new BytesIO object
+        output = BytesIO()
+        video.save(output)  # Save the changes to the in-memory file
+        
+        logging.info(f"EXIF metadata updated with creation date: {creation_date}")
+        
+        # Return the modified in-memory data
+        return output.getvalue()
     except Exception as e:
-        msg = f"Failed to update EXIF metadata for {os.path.basename(file_path)}: {e}"
+        msg = f"Failed to update EXIF metadata for the video: {e}"
         logging.error(msg)
         raise(Exception(msg))
 
 
-def modifiy_image_creation_date(image_data, file_path, creation_date):
+
+def modifiy_image_creation_date(image_data, creation_date):
     try:
         bytes_io = BytesIO(image_data)
         img = Image.open(bytes_io)  # Load image from memory
@@ -110,7 +124,7 @@ def modifiy_image_creation_date(image_data, file_path, creation_date):
         
         # Check if 'DateTimeOriginal' exists in the EXIF data
         if piexif.ExifIFD.DateTimeOriginal in exif_dict["Exif"]:
-            logging.info(f"EXIF DateTimeOriginal already exists = {exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal]} for {os.path.basename(file_path)}. No modification needed.")
+            logging.info(f"EXIF DateTimeOriginal already exists = {exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal]}. No modification needed.")
             return bytes_io
         else:
             # Insert the 'DateTimeOriginal' into EXIF if it doesn't exist
@@ -120,10 +134,10 @@ def modifiy_image_creation_date(image_data, file_path, creation_date):
             # Save the modified image with updated EXIF to memory
             output = BytesIO()
             img.save(output, format=img.format, exif=exif_bytes)
-            logging.info(f"EXIF metadata updated with creation date: {creation_date} for {os.path.basename(file_path)}")
+            logging.info(f"EXIF metadata updated with creation date: {creation_date}")
             return output.getvalue()  # Return the modified image data
     except Exception as e:
-        msg = f"Failed to update EXIF metadata for {file_path}: {e}"
+        msg = f"Failed to update EXIF metadata for the image: {e}"
         logging.error(msg)
         raise(Exception(msg))
 
@@ -133,7 +147,6 @@ def get_file_modified_date(file_path):
     return datetime.fromtimestamp(timestamp).strftime('%Y:%m:%d %H:%M:%S')
 
 
-# Upload file to Google Photos
 def upload_file(service, file_path):
     file_name = os.path.basename(file_path)
     logging.info(f"Uploading file: {file_path} ...")
@@ -150,8 +163,8 @@ def upload_file(service, file_path):
             modified_image_data = modifiy_image_creation_date(file_data, file_path, creation_date)
             modified_file_data = modified_image_data
         elif file_name.lower().endswith('.mp4'):
-            modify_mp4_creation_date(file_path, creation_date)  # Modify MP4 creation date
-            modified_file_data = file_data  # Keep original data for videos
+            modified_video_data = modify_mp4_creation_date(file_data, creation_date)  # Modify MP4 in memory
+            modified_file_data = modified_video_data  # Use the modified in-memory video data
         else:
             msg = f"Unsupported file type: {file_name}"
             logging.error(msg)
@@ -192,6 +205,7 @@ def upload_file(service, file_path):
         raise(Exception(msg))
 
 
+
 ##FIXME : hash comparison is not working. Only check filename for now
 # Compare local file with the photos in Google Photos based on filename and hash# Compare local file with the photos in Google Photos based on filename and hash
 def raise_on_duplicate(filename_hash_map, local_file_path):
@@ -217,10 +231,9 @@ def raise_on_duplicate(filename_hash_map, local_file_path):
     logging.info(f"No duplicate found for {local_file_path}.")
     return False
 
-##FIXME : do something for videos
 # Upload all valid files (images/videos) from a folder to Google Photos
 def upload_folder_to_google_photos(service, folder_path, photo_hashes):
-    supported_formats = ['jpg', 'jpeg', 'png']
+    supported_formats = ['jpg', 'jpeg', 'png', 'mp4']
     
     logging.info(f"Uploading files from folder: {folder_path}...")
     print("\n")
@@ -249,6 +262,6 @@ if __name__ == '__main__':
 
     service = authenticate_photos()
     
-    existing_photo_hashes = get_existing_photos(service)
-    
+    ##existing_photo_hashes = get_existing_photos(service)
+    existing_photo_hashes = None
     upload_folder_to_google_photos(service, local_folder, existing_photo_hashes)
