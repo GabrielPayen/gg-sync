@@ -21,6 +21,6 @@ chmod +x gg-photos.sh
 ## TODO
 
 Add `requirements.txt`
-Requires ffmpeg to extract metadata
+
 
 Author : gabriel.payen.gp@gmail.com
