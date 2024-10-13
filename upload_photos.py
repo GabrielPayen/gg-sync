@@ -1,6 +1,8 @@
 import os
+from pathlib import Path
 import pickle
 import hashlib
+import time
 import requests
 import logging
 import json
@@ -36,6 +38,7 @@ if os.path.exists(error_log_path):
     os.remove(error_log_path)
 
 # Scopes for Google Photos API
+
 SCOPES = ['https://www.googleapis.com/auth/photoslibrary.readonly', 'https://www.googleapis.com/auth/photoslibrary.appendonly']
 discovery_url = "https://photoslibrary.googleapis.com/$discovery/rest?version=v1"
 
@@ -68,26 +71,24 @@ def compute_file_hash(file_path):
 
 # Get all existing media items from Google Photos
 def get_existing_photos(service):
-    logging.info("Fetching metadata info from Google Photos...this can take some time...")
-    media_items = []
+    logging.info("Fetching already uploaded files from local to Google Photos...this can take some time...")
     next_page_token = ''
-    filename_hash_map = {}
-    
+    descriptions = []
     while True:
         response = service.mediaItems().list(pageSize=100, pageToken=next_page_token).execute()
-        media_items.extend(response.get('mediaItems', []))
+        media_items = response.get('mediaItems', [])
         next_page_token = response.get('nextPageToken', '')
+        for item in media_items:
+            descriptions_batch = item.get('description', '')
+            if descriptions_batch != '':
+                descriptions.append(descriptions_batch)
         if not next_page_token:
             break
     
-    for item in media_items:
-        # Store filename with its hash in a dictionary
-        filename = item['filename']
-        base_url = item['baseUrl'] + "=d"  # Get full-resolution photo for hash comparison
-        filename_hash_map[filename] = base_url
+    descriptions = list(filter(lambda x: x != '', descriptions))
         
-    logging.info(f"Fetched {len(filename_hash_map)} existing media items.")
-    return filename_hash_map
+    logging.info(f"Fetched {len(descriptions)} existing media items uploaded from local (based on their description)")
+    return descriptions
 
 def modifiy_image_creation_date(image_data, date):
     try:
@@ -100,13 +101,15 @@ def modifiy_image_creation_date(image_data, date):
             exif_dict = {"Exif": {}}
         
         # Check if 'DateTimeOriginal' exists in the EXIF data
-        if piexif.ExifIFD.DateTimeOriginal in exif_dict["Exif"]:
+        if piexif.ExifIFD.DateTimeOriginal in exif_dict["Exif"] and False: 
             logging.info(f"EXIF DateTimeOriginal already exists = {exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal]}. No modification needed.")
-            return bytes_io
+            return image_data
         else:
             # Insert the 'DateTimeOriginal' into EXIF if it doesn't exist
             exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = date
+            exif_dict["Exif"][41729] = ''.encode('utf8') # somehow 41729 is buggy
             exif_bytes = piexif.dump(exif_dict)
+    
 
             # Save the modified image with updated EXIF to memory
             output = BytesIO()
@@ -140,7 +143,7 @@ def upload_file(service, file_path):
         if file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
             file_data = modifiy_image_creation_date(file_data, creation_date)
         elif file_name.lower().endswith('.mp4'):
-            #FIXME find a way for mp4 file to fix date if not existing : ffmpg ?
+            #FIXME find a way for mp4 file to fix date if not existing : ffmpeg ?
             file_data = file_data  # Keep original data for videos
         else:
             msg = f"Unsupported file type: {file_name}"
@@ -155,61 +158,64 @@ def upload_file(service, file_path):
             'X-Goog-Upload-File-Name': file_name,
             'X-Goog-Upload-Protocol': 'raw'
         }
-        response = requests.post(url, headers=headers, data=file_data)
 
-    if response.status_code == 200:
-        upload_token = response.content.decode('utf-8')
-        
-        # Create new media item
-        new_media_item = {
-            'newMediaItems': [
-                {
-                    'description': file_path,
-                    'simpleMediaItem': {
-                        'uploadToken': upload_token
-                    }
+        # Retry logic
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            logging.info(f"Attempt {attempt + 1} to upload {file_name}...")
+            response = requests.post(url, headers=headers, data=file_data)
+
+            if response.status_code == 200:
+                upload_token = response.content.decode('utf-8')
+                
+                # Create new media item
+                new_media_item = {
+                    'newMediaItems': [
+                        {
+                            'description': file_path,
+                            'simpleMediaItem': {
+                                'uploadToken': upload_token
+                            }
+                        }
+                    ]
                 }
-            ]
-        }
 
-        # Add the new media item to Google Photos
-        upload_response = service.mediaItems().batchCreate(body=new_media_item).execute()
-        logging.info(f"Successfully uploaded {file_name}.")
-        return upload_response
-    else:
-        msg = f"Failed to upload {file_name} : {response.text}"
-        logging.error(msg)
-        raise(Exception(msg))
+                # Add the new media item to Google Photos
+                upload_response = service.mediaItems().batchCreate(body=new_media_item).execute()
+                if upload_response['newMediaItemResults'][0]['status']['message'] == 'Success':
+                    logging.info(f"Successfully uploaded {file_name}.")
+                    return  # Exit the function after a successful upload
+                else:
+                    msg = f"Failed to upload (media item) {file_name} : {upload_response['newMediaItemResults'][0]['status']['message']}"
+                    logging.error(msg)
+
+                    # Wait before retrying if not the last attempt
+                    if attempt < max_retries:
+                        logging.info(f"Retrying in 60 seconds...")
+                        time.sleep(60)  # Wait for 60 seconds before retrying
 
 
-##FIXME : hash comparison is not working. Only check filename for now
-# Compare local file with the photos in Google Photos based on filename and hash# Compare local file with the photos in Google Photos based on filename and hash
-def raise_on_duplicate(filename_hash_map, local_file_path):
-    local_file_name = os.path.basename(local_file_path)
-    logging.info(f"Checking if photo exists for {local_file_path}...")
+            else:
+                msg = f"Failed to upload (media token creation) {file_name} : {response.text}"
+                logging.error(msg)
 
-    if local_file_name in filename_hash_map:
+                # Wait before retrying if not the last attempt
+                if attempt < max_retries:
+                    logging.info(f"Retrying in 60 seconds...")
+                    time.sleep(60)  # Wait for 60 seconds before retrying
 
-    # Compute the hash for the local file
-    #     local_file_hash = compute_file_hash(local_file_path)  # Calculate the hash for local file
+        # If all attempts fail, raise an exception
+        raise Exception(f"Upload failed after {max_retries + 1} attempts for {file_name}.")
 
-    #     # If filename matches, check the hash to ensure it's the same file
-    #     existing_photo_url = filename_hash_map[local_file_name]
-    #     existing_photo = requests.get(existing_photo_url)
 
-    #     if existing_photo.status_code == 200:
-    #         existing_hash = hashlib.md5(existing_photo.content).hexdigest()
-    #         if local_file_hash == existing_hash:  # Compare local hash with the existing hash
-    #             logging.info(f"Photo already exists: {local_file_path}.")
-    #             return True  # Photo already exists
-    # else:
-        raise(Exception(f"Found duplicate for: {local_file_name}"))
-    logging.info(f"No duplicate found for {local_file_path}.")
-    return False
+##TODO : Only check filename for now assuming that already uploaded photos got uploaded with their source filepath as description
+## Could be improved to be more generic, but 
+def is_already_uploaded(existing_photos_desc, local_file_path):
+    return local_file_path in existing_photos_desc
 
 ##FIXME : do something for videos
 # Upload all valid files (images/videos) from a folder to Google Photos
-def upload_folder_to_google_photos(service, folder_path, photo_hashes):
+def upload_folder_to_google_photos(service, folder_path, existing_photos_desc):
     supported_formats = ['jpg', 'jpeg', 'png']
     
     logging.info(f"Uploading files from folder: {folder_path}...")
@@ -220,24 +226,35 @@ def upload_folder_to_google_photos(service, folder_path, photo_hashes):
             if file_name.split('.')[-1].lower() in supported_formats:
                 file_path = os.path.join(root, file_name)
                 try :
-                    if photo_hashes:
-                        raise_on_duplicate(photo_hashes, file_path)
-                    upload_file(service, file_path)
+                    if is_already_uploaded(existing_photos_desc, file_path):
+                        logging.warning(f"{file_path} already uploaded to Google Photos, skipping")
+                    else :
+                        print("\n")
+                        upload_file(service, file_path)
+                        print("\n")
                 except Exception as e:
                     msg = f"Failed to upload {file_name}. Error: {e}"
                     logging.error(msg)
                     error_logger.error(json.dumps({'file': file_name, 'reason': msg}))
 
-                print("\n")
+              
 
 if __name__ == '__main__':
+
+    
     if len(sys.argv) < 2:
         print("Usage: python upload_to_google_photos.py <local_folder>")
         sys.exit(1)
 
-    local_folder = sys.argv[1]
+    local_folder = f'"{os.path.expanduser(sys.argv[1])}"'
+    if not os.path.exists(local_folder):
+        print(f"Error: Local folder '{local_folder}' does not exist") # white space issues when ran from cmd ?
+        sys.exit(1)
+
+    LOCAL_PATTERN = os.path.join(*Path(os.path.abspath(local_folder)).parts[:3])
 
     service = authenticate_photos()
     
-    existing_photo_hashes = get_existing_photos(service)
-    upload_folder_to_google_photos(service, local_folder, existing_photo_hashes)
+    # existing_photos_desc = get_existing_photos(service)
+    existing_photos_desc = []
+    upload_folder_to_google_photos(service, local_folder, existing_photos_desc)
