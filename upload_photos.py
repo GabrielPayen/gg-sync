@@ -101,7 +101,7 @@ def modifiy_image_creation_date(image_data, date):
             exif_dict = {"Exif": {}}
         
         # Check if 'DateTimeOriginal' exists in the EXIF data
-        if piexif.ExifIFD.DateTimeOriginal in exif_dict["Exif"] and False: 
+        if piexif.ExifIFD.DateTimeOriginal in exif_dict["Exif"]: 
             logging.info(f"EXIF DateTimeOriginal already exists = {exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal]}. No modification needed.")
             return image_data
         else:
@@ -191,7 +191,7 @@ def upload_file(service, file_path):
 
                     # Wait before retrying if not the last attempt
                     if attempt < max_retries:
-                        logging.info(f"Retrying in 60 seconds...")
+                        logging.info(f"Retrying in 60 seconds...") ### => beware api quota limit, should limit to 120 per min
                         time.sleep(60)  # Wait for 60 seconds before retrying
 
 
@@ -241,7 +241,7 @@ def upload_folder_to_google_photos(service, folder_path, existing_photos_desc):
 
 if __name__ == '__main__':
 
-    
+   
     if len(sys.argv) < 2:
         print("Usage: python upload_to_google_photos.py <local_folder>")
         sys.exit(1)
@@ -255,6 +255,6 @@ if __name__ == '__main__':
 
     service = authenticate_photos()
     
-    # existing_photos_desc = get_existing_photos(service)
-    existing_photos_desc = []
+    existing_photos_desc = get_existing_photos(service)
+    # existing_photos_desc = []
     upload_folder_to_google_photos(service, local_folder, existing_photos_desc)
