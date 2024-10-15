@@ -162,10 +162,11 @@ def upload_file(service, file_path):
         # Retry logic
         max_retries = 2
         for attempt in range(max_retries + 1):
-            logging.info(f"Attempt {attempt + 1} to upload {file_name}...")
-            response = requests.post(url, headers=headers, data=file_data)
+            try:
+                logging.info(f"Attempt {attempt + 1} to upload {file_name}...")
+                response = requests.pot(url, headers=headers, data=file_data)
 
-            if response.status_code == 200:
+                assert response.status_code == 200, f"Upload failed with status code: {response.status_code}"
                 upload_token = response.content.decode('utf-8')
                 
                 # Create new media item
@@ -182,30 +183,18 @@ def upload_file(service, file_path):
 
                 # Add the new media item to Google Photos
                 upload_response = service.mediaItems().batchCreate(body=new_media_item).execute()
-                if upload_response['newMediaItemResults'][0]['status']['message'] == 'Success':
-                    logging.info(f"Successfully uploaded {file_name}.")
-                    return  # Exit the function after a successful upload
-                else:
-                    msg = f"Failed to upload (media item) {file_name} : {upload_response['newMediaItemResults'][0]['status']['message']}"
-                    logging.error(msg)
-
-                    # Wait before retrying if not the last attempt
-                    if attempt < max_retries:
-                        logging.info(f"Retrying in 60 seconds...") ### => beware api quota limit, should limit to 120 per min
-                        time.sleep(60)  # Wait for 60 seconds before retrying
-
-
-            else:
-                msg = f"Failed to upload (media token creation) {file_name} : {response.text}"
+                assert upload_response['newMediaItemResults'][0]['status']['message'] == 'Success', f"Failed to upload {file_name} : {upload_response['newMediaItemResults'][0]['status']['message']}"
+                logging.info(f"Successfully uploaded {file_name}.")
+                return  # Exit the function after a successful upload
+            except Exception as e:
+                msg = f"Failed to upload {file_name} : {e}"
                 logging.error(msg)
-
                 # Wait before retrying if not the last attempt
                 if attempt < max_retries:
-                    logging.info(f"Retrying in 60 seconds...")
+                    logging.info(f"Retrying in 60 seconds...") ### => beware api quota limit, should limit to 120 per min
                     time.sleep(60)  # Wait for 60 seconds before retrying
-
-        # If all attempts fail, raise an exception
-        raise Exception(f"Upload failed after {max_retries + 1} attempts for {file_name}.")
+                else:
+                    raise Exception(f"Upload failed after {max_retries + 1} attempts for {file_name}.")
 
 
 ##TODO : Only check filename for now assuming that already uploaded photos got uploaded with their source filepath as description
@@ -241,12 +230,11 @@ def upload_folder_to_google_photos(service, folder_path, existing_photos_desc):
 
 if __name__ == '__main__':
 
-   
     if len(sys.argv) < 2:
         print("Usage: python upload_to_google_photos.py <local_folder>")
         sys.exit(1)
 
-    local_folder = f'"{os.path.expanduser(sys.argv[1])}"'
+    local_folder = os.path.expanduser(sys.argv[1])
     if not os.path.exists(local_folder):
         print(f"Error: Local folder '{local_folder}' does not exist") # white space issues when ran from cmd ?
         sys.exit(1)
