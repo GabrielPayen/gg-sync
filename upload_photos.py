@@ -155,7 +155,7 @@ def upload_file(service, file_path):
         for attempt in range(max_retries + 1):
             try:
                 logging.info(f"Attempt {attempt + 1} to upload {file_name}...")
-                response = requests.pot(url, headers=headers, data=file_data)
+                response = requests.post(url, headers=headers, data=file_data)
 
                 assert response.status_code == 200, f"Upload failed with status code: {response.status_code}"
                 upload_token = response.content.decode('utf-8')
