@@ -60,15 +60,6 @@ def authenticate_photos():
     logging.info("Successfully authenticated.")
     return build_from_document(requests.get(discovery_url).json(), credentials=creds)
 
-# Compute hash of the local file to ensure uniqueness (based on file content)
-def compute_file_hash(file_path):
-    logging.info(f"Computing hash for file: {file_path}")
-    hash_md5 = hashlib.md5()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
-
 # Get all existing media items from Google Photos
 def get_existing_photos(service):
     logging.info("Fetching already uploaded files from local to Google Photos...this can take some time...")
@@ -198,7 +189,8 @@ def upload_file(service, file_path):
 
 
 ##TODO : Only check filename for now assuming that already uploaded photos got uploaded with their source filepath as description
-## Could be improved to be more generic, but 
+## Could be improved to be more generic, but hash costs a lot of time. Can be best to rely on existing tools like https://github.com/mtalcott/google-photos-deduper
+## to delete duplicates later on
 def is_already_uploaded(existing_photos_desc, local_file_path):
     return local_file_path in existing_photos_desc
 
