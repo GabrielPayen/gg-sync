@@ -219,22 +219,35 @@ def upload_folder_to_google_photos(service, folder_path, existing_photos_desc):
                     error_logger.error(json.dumps({'file': file_name, 'reason': msg}))
 
               
+import argparse
+
+# Use argparse to handle command-line arguments
+def parse_args():
+    parser = argparse.ArgumentParser(description="Upload files to Google Photos from a local folder.")
+    parser.add_argument('local_folder', type=str, help='Path to the local folder to upload')
+    parser.add_argument('--skip-check', action='store_true', help='Skip checking for already uploaded files')
+    return parser.parse_args()
 
 if __name__ == '__main__':
-
-    if len(sys.argv) < 2:
-        print("Usage: python upload_to_google_photos.py <local_folder>")
-        sys.exit(1)
-
-    local_folder = os.path.expanduser(sys.argv[1])
+    
+    args = parse_args()
+    local_folder = os.path.expanduser(args.local_folder)
+    
     if not os.path.exists(local_folder):
-        print(f"Error: Local folder '{local_folder}' does not exist") # white space issues when ran from cmd ?
+        print(f"Error: Local folder '{local_folder}' does not exist")
         sys.exit(1)
-
+    
     LOCAL_PATTERN = os.path.join(*Path(os.path.abspath(local_folder)).parts[:3])
 
+    # Authenticate the service
     service = authenticate_photos()
     
-    existing_photos_desc = get_existing_photos(service)
-    # existing_photos_desc = []
+    # Skip checking for existing photos if --skip-check is used
+    if args.skip_check:
+        logging.info("Skipping check for already uploaded files.")
+        existing_photos_desc = []
+    else:
+        existing_photos_desc = get_existing_photos(service)
+    
+    # Upload the folder to Google Photos
     upload_folder_to_google_photos(service, local_folder, existing_photos_desc)
