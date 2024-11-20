@@ -51,9 +51,14 @@ def authenticate_photos():
             creds = pickle.load(token)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                logging.error(f"Error refreshing token, re-acquiring credentials")
+                flow = InstalledAppFlow.from_client_secrets_file('secret.json', SCOPES)
+                creds = flow.run_local_server(port=0)
         else:
-            flow = InstalledAppFlow.from_client_secrets_file('secrets.json', SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file('secret.json', SCOPES)
             creds = flow.run_local_server(port=0)
         with open('token_photos.pickle', 'wb') as token:
             pickle.dump(creds, token)
@@ -151,7 +156,7 @@ def upload_file(service, file_path):
         }
 
         # Retry logic
-        max_retries = 2
+        max_retries = 1
         for attempt in range(max_retries + 1):
             try:
                 logging.info(f"Attempt {attempt + 1} to upload {file_name}...")
@@ -182,8 +187,8 @@ def upload_file(service, file_path):
                 logging.error(msg)
                 # Wait before retrying if not the last attempt
                 if attempt < max_retries:
-                    logging.info(f"Retrying in 60 seconds...") ### => beware api quota limit, should limit to 120 per min
-                    time.sleep(60)  # Wait for 60 seconds before retrying
+                    logging.info(f"Retrying in 20 seconds...") ### => beware api quota limit, should limit to 120 per min
+                    time.sleep(20)  # Wait for 20 seconds before retrying
                 else:
                     raise Exception(f"Upload failed after {max_retries + 1} attempts for {file_name}.")
 
