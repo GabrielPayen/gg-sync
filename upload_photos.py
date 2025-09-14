@@ -230,7 +230,7 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser(description="Upload files to Google Photos from a local folder.")
     parser.add_argument('local_folder', type=str, help='Path to the local folder to upload')
-    parser.add_argument('--skip-check', action='store_true', help='Skip checking for already uploaded files')
+    parser.add_argument('--check', action='store_true', help='Checking for already uploaded files', default=False)
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -247,8 +247,8 @@ if __name__ == '__main__':
     # Authenticate the service
     service = authenticate_photos()
     
-    # Skip checking for existing photos if --skip-check is used
-    if args.skip_check:
+    # Skip checking for existing photos if check is used
+    if not args.check:
         logging.info("Skipping check for already uploaded files.")
         existing_photos_desc = []
     else:
